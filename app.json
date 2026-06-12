@@ -3,6 +3,7 @@
     "name": "focus-cat",
     "slug": "focus-cat",
     "version": "1.0.0",
+    "scheme": "focus-cat",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,10 +22,25 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.anonymous.focuscat"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "supabaseUrl": "https://btiyqvetbyepibrvkfon.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ0aXlxdmV0YnllcGlicnZrZm9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMDU0MjAsImV4cCI6MjA5Mzg4MTQyMH0.96sapxNWG3JOic79E2Mf0Jin90ChNQah4LX9NG3_nzY"
+    },
+    "plugins": [
+      "expo-router",
+      "@react-native-community/datetimepicker",
+      "expo-audio",
+      "expo-font"
+    ]
   }
 }
