@@ -1,10 +1,12 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   StyleSheet, Text, View, TouchableOpacity, TextInput,
   Modal, ScrollView, ImageBackground, Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { AnimatedSprite } from '../../src/components/AnimatedSprite'
+import { InsightCardView, type InsightCardData } from '../../src/components/InsightCardView'
+import { TodoBreakdownModal } from '../../src/components/TodoBreakdownModal'
 import { useCatStore } from '../../src/stores/catStore'
 import { useAuth } from '../../src/stores/authStore'
 import { api } from '../../src/lib/api'
@@ -30,6 +32,7 @@ interface Todo {
   id: number
   text: string
   completed: boolean
+  source?: string
 }
 
 interface FocusSession {
@@ -68,6 +71,7 @@ export default function FocusScreen() {
   const [focusMode, setFocusMode] = useState<TimerMode>('countdown')
   const [focusDuration, setFocusDuration] = useState(25)
   const [showCompletion, setShowCompletion] = useState(false)
+  const [summaryCard, setSummaryCard] = useState<InsightCardData | null>(null)
   const [earnedCoins, setEarnedCoins] = useState(0)
   const [petCount, setPetCount] = useState(0)
   const [showPauseConfirm, setShowPauseConfirm] = useState(false)
@@ -107,15 +111,22 @@ export default function FocusScreen() {
 
   // ============ 加载持久化数据 ============
   const isLoggedIn = useAuth((s) => s.isLoggedIn)
-  useEffect(() => {
+  const [showBreakdown, setShowBreakdown] = useState(false)
+
+  const loadTodos = useCallback(() => {
     if (!isLoggedIn) return
     api.getTodos().then((data: any[]) => {
-      if (Array.isArray(data)) setTodos(data.map((t: any) => ({ id: t.id, text: t.text, completed: !!t.completed })))
+      if (Array.isArray(data)) setTodos(data.map((t: any) => ({ id: t.id, text: t.text, completed: !!t.completed, source: t.source })))
     }).catch(() => {})
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    if (!isLoggedIn) return
+    loadTodos()
     api.getFocusSessions().then((data: any[]) => {
       if (Array.isArray(data)) setFocusSessions(data.map((s: any) => ({ id: s.id, name: s.name, duration: s.duration, mode: s.mode })))
     }).catch(() => {})
-  }, [isLoggedIn])
+  }, [isLoggedIn, loadTodos])
 
   // ============ 计时器 ============
   useEffect(() => {
@@ -151,6 +162,7 @@ export default function FocusScreen() {
       catStore.addFocusMinutes(deltaCoins)
       awardedCoinsRef.current = coins
       setEarnedCoins(deltaCoins)
+      setSummaryCard(null)
       setShowCompletion(true)
     }
 
@@ -165,6 +177,10 @@ export default function FocusScreen() {
             const s = await api.createFocusSession({ name: focusTaskName, duration: sessionDuration, mode: focusMode })
             setFocusSessions((prev) => [{ id: s.id, name: s.name, duration: s.duration, mode: s.mode }, ...prev])
             activeSessionId.current = s.id
+            // 结束卡：拿不到就算了，不能挡住"专注完成"这个反馈
+            api.getSessionSummary(s.id)
+              .then((card: InsightCardData) => setSummaryCard(card))
+              .catch(() => {})
           } catch {}
         } else {
           const sessionId = ++nextId.current
@@ -343,6 +359,7 @@ export default function FocusScreen() {
               <TouchableOpacity style={[styles.todoCheck, todo.completed && styles.todoCheckDone]} onPress={() => toggleTodo(todo.id)}>
                 {todo.completed && <Text style={styles.todoCheckmark}>✓</Text>}
               </TouchableOpacity>
+              {todo.source === 'ai_breakdown' && <Text style={styles.todoAiTag}>AI</Text>}
               <TextInput
                 style={[styles.todoInput, todo.completed && styles.todoInputDone]}
                 placeholder="输入待办事项..."
@@ -356,6 +373,14 @@ export default function FocusScreen() {
           <TouchableOpacity style={styles.todoAddBtn} onPress={addTodo}>
             <Text style={styles.todoAddBtnText}>+ 添加待办</Text>
           </TouchableOpacity>
+          {isLoggedIn && (
+            <TouchableOpacity
+              style={[styles.todoAddBtn, styles.breakdownBtn]}
+              onPress={() => setShowBreakdown(true)}
+            >
+              <Text style={styles.breakdownBtnText}>✦ AI 拆解</Text>
+            </TouchableOpacity>
+          )}
           {todos.length === 0 && (
             <Text style={styles.emptyText}>点击"待办"添加任务</Text>
           )}
@@ -380,6 +405,12 @@ export default function FocusScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        <TodoBreakdownModal
+          visible={showBreakdown}
+          onClose={() => setShowBreakdown(false)}
+          onCreated={loadTodos}
+        />
 
         {/* 创建专注事件弹窗 */}
         <Modal visible={showModal} animationType="fade" transparent>
@@ -644,9 +675,14 @@ export default function FocusScreen() {
                 <Text style={styles.completionTitle}>专注完成!</Text>
                 <Text style={styles.completionCoins}>+{earnedCoins} 🪙</Text>
                 <Text style={styles.completionHint}>金币已存入猫咪账户</Text>
+                {summaryCard && (
+                  <View style={styles.completionInsight}>
+                    <InsightCardView card={summaryCard} compact hideActions />
+                  </View>
+                )}
                 <TouchableOpacity
                   style={styles.completionBtn}
-                  onPress={() => setShowCompletion(false)}
+                  onPress={() => { setShowCompletion(false); setSummaryCard(null) }}
                 >
                   <Text style={styles.completionBtnText}>好的</Text>
                 </TouchableOpacity>
@@ -746,6 +782,26 @@ const styles = StyleSheet.create({
     marginTop: -scale(10),
   },
   todoAddBtnText: { fontSize: scale(13), color: '#C0A090' },
+  todoAiTag: {
+    fontSize: scale(9),
+    fontFamily: 'Pixel',
+    color: '#F4A460',
+    borderWidth: 1,
+    borderColor: '#F4A460',
+    paddingHorizontal: scale(4),
+    paddingVertical: scale(1),
+    marginRight: scale(6),
+  },
+  breakdownBtn: {
+    marginTop: scale(10),
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#F4A460',
+    borderTopWidth: 2,
+    borderBottomLeftRadius: scale(8),
+    borderBottomRightRadius: scale(8),
+  },
+  breakdownBtnText: { fontSize: scale(13), fontFamily: 'PixelSCBold', color: '#F4A460' },
   emptyText: { textAlign: 'center', color: '#C0A090', fontSize: scale(13), marginTop: scale(40) },
 
   // ====== 弹窗 ======
@@ -866,20 +922,28 @@ const styles = StyleSheet.create({
   // ====== 完成反馈 ======
   completionOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
   completionCard: {
-    backgroundColor: '#FFFFFF', borderRadius: scale(16),
-    paddingHorizontal: scale(36), paddingVertical: scale(28),
-    alignItems: 'center', gap: scale(10),
+    width: '80%',
+    backgroundColor: '#FFFFFF', borderRadius: scale(14),
+    paddingHorizontal: scale(16), paddingVertical: scale(18),
+    alignItems: 'center', gap: scale(6),
     borderWidth: 3, borderColor: '#F4A460',
   },
-  completionTitle: { fontSize: scale(20), fontFamily: 'Pixel', color: '#F4A460' },
-  completionCoins: { fontSize: scale(28), fontFamily: 'Pixel', color: '#FFB74D' },
-  completionHint: { fontSize: scale(12), color: '#A1887F' },
+  completionInsight: {
+    width: '100%',
+    marginTop: scale(2),
+    paddingTop: scale(8),
+    borderTopWidth: 1,
+    borderTopColor: '#F0E4D8',
+  },
+  completionTitle: { fontSize: scale(16), fontFamily: 'Pixel', color: '#F4A460' },
+  completionCoins: { fontSize: scale(22), fontFamily: 'Pixel', color: '#FFB74D' },
+  completionHint: { fontSize: scale(11), color: '#A1887F' },
   completionBtn: {
-    marginTop: scale(8), backgroundColor: '#F4A460',
-    paddingHorizontal: scale(32), paddingVertical: scale(10),
+    marginTop: scale(4), backgroundColor: '#F4A460',
+    paddingHorizontal: scale(26), paddingVertical: scale(8),
     borderRadius: scale(20),
   },
-  completionBtnText: { fontSize: scale(14), fontFamily: 'Pixel', color: '#FFFFFF' },
+  completionBtnText: { fontSize: scale(13), fontFamily: 'Pixel', color: '#FFFFFF' },
 
   // ====== 确认弹窗 ======
   confirmCard: {

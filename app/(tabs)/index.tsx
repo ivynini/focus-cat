@@ -11,7 +11,9 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
+import Svg, { Circle } from 'react-native-svg'
 import { PixelIcon } from '../../src/components/PixelIcon'
+import { StudyInsightCard } from '../../src/components/StudyInsightCard'
 import { useAudio } from '../../src/hooks/useAudio'
 import { scale, vscale, sh } from '../../src/lib/scale'
 import { article } from '../../src/data/articles'
@@ -75,9 +77,11 @@ export default function HomeScreen() {
       ? `rgb(${Math.round(239 + (255 - 239) * focusPercent * 2)}, ${Math.round(83 + (183 - 83) * focusPercent * 2)}, ${Math.round(80 + (77 - 80) * focusPercent * 2)})`
       : `rgb(${Math.round(255 + (102 - 255) * (focusPercent - 0.5) * 2)}, ${Math.round(183 + (187 - 183) * (focusPercent - 0.5) * 2)}, ${Math.round(77 + (106 - 77) * (focusPercent - 0.5) * 2)})`
 
-  // 环形填充旋转角度
-  const rightDeg = Math.min(focusPercent * 360, 180)
-  const leftDeg = focusPercent > 0.5 ? (focusPercent - 0.5) * 360 : 0
+  // 环形几何：SVG 的 dasharray 能精确闭合，不会像两个半圆那样在接缝处裂开
+  const ringSize = scale(116)
+  const ringStroke = scale(8)
+  const ringRadius = (ringSize - ringStroke) / 2
+  const ringCircumference = 2 * Math.PI * ringRadius
 
   const fetchTodayMinutes = useCallback(() => {
     if (!isLoggedIn) return
@@ -163,41 +167,31 @@ export default function HomeScreen() {
           activeOpacity={0.8}
           onPress={() => { setTempGoal(String(dailyGoal)); setShowFocusModal(true) }}
         >
-          <View style={styles.focusRing}>
-            {/* 轨道底色 */}
-            <View style={[styles.ringTrack, { borderColor: 'rgba(255,255,255,0.45)' }]} />
-            {/* 右半填充 0~50% */}
-            {rightDeg > 0 && (
-              <View style={styles.ringClipR}>
-                <View style={[
-                  styles.ringHalf,
-                  {
-                    right: 0,
-                    borderTopColor: ringColor,
-                    borderRightColor: ringColor,
-                    borderBottomColor: 'transparent',
-                    borderLeftColor: 'transparent',
-                    transform: [{ rotate: `${rightDeg - 135}deg` }],
-                  },
-                ]} />
-              </View>
-            )}
-            {/* 左半填充 >50% */}
-            {leftDeg > 0 && (
-              <View style={styles.ringClipL}>
-                <View style={[
-                  styles.ringHalf,
-                  {
-                    left: 0,
-                    borderTopColor: 'transparent',
-                    borderRightColor: 'transparent',
-                    borderBottomColor: ringColor,
-                    borderLeftColor: ringColor,
-                    transform: [{ rotate: `${leftDeg - 135}deg` }],
-                  },
-                ]} />
-              </View>
-            )}
+          <View style={[styles.focusRing, { width: ringSize, height: ringSize }]}>
+            <Svg width={ringSize} height={ringSize} style={StyleSheet.absoluteFill}>
+              {/* 轨道底色 */}
+              <Circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                stroke="rgba(255,255,255,0.45)"
+                strokeWidth={ringStroke}
+                fill="none"
+              />
+              {/* 进度：从 12 点方向顺时针画，缺口只剩末端的未完成部分 */}
+              <Circle
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
+                stroke={ringColor}
+                strokeWidth={ringStroke}
+                fill="none"
+                strokeDasharray={`${ringCircumference} ${ringCircumference}`}
+                strokeDashoffset={ringCircumference * (1 - focusPercent)}
+                strokeLinecap="round"
+                transform={`rotate(-90 ${ringSize / 2} ${ringSize / 2})`}
+              />
+            </Svg>
             {/* 中心文字 */}
             <View style={styles.ringCenter}>
               <Text style={[styles.ringMinutes, { color: ringColor }]}>{todayMinutes}</Text>
@@ -249,6 +243,9 @@ export default function HomeScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* ====== AI 复盘卡片 ====== */}
+        <StudyInsightCard enabled={isLoggedIn} />
 
         {/* ====== Countdown ====== */}
         <TouchableOpacity style={styles.countdownBox} onPress={openEditor} activeOpacity={0.85}>
@@ -383,31 +380,7 @@ const styles = StyleSheet.create({
   // ====== 专注环 ======
   focusRingWrap: { alignItems: 'center', gap: scale(4) },
   focusRing: {
-    width: scale(116), height: scale(116),
     alignItems: 'center', justifyContent: 'center',
-  },
-  ringTrack: {
-    position: 'absolute', width: scale(106), height: scale(106),
-    borderRadius: scale(53), borderWidth: scale(8),
-    borderColor: 'rgba(255,255,255,0.45)',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  ringClipR: {
-    position: 'absolute', right: 0, top: 0,
-    width: scale(58), height: scale(116),
-    overflow: 'hidden',
-  },
-  ringClipL: {
-    position: 'absolute', left: 0, top: 0,
-    width: scale(58), height: scale(116),
-    overflow: 'hidden',
-  },
-  ringHalf: {
-    position: 'absolute', top: scale(5),
-    width: scale(106), height: scale(106),
-    borderRadius: scale(53),
-    borderWidth: scale(8),
-    borderColor: 'transparent',
   },
   ringCenter: {
     width: scale(86), height: scale(86),

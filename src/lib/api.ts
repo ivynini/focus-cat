@@ -1,25 +1,50 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { Platform } from 'react-native'
 
-// Android 模拟器用 10.0.2.2 访问宿主机，Web/真机用 localhost
-const API_BASE = 'http://10.0.2.2:3000/api'
+// Android 模拟器通过 10.0.2.2 访问宿主机；真机可用环境变量指定电脑的局域网地址。
+const DEFAULT_API_BASE = Platform.OS === 'android'
+  ? 'http://10.0.2.2:8000/api'
+  : 'http://localhost:8000/api'
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE).replace(/\/$/, '')
 
-async function request(path: string, options: RequestInit = {}) {
+async function request(path: string, options: RequestInit = {}, timeoutMs = 8000) {
   const token = await AsyncStorage.getItem('token')
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), 8000)
+  const id = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: { ...headers, ...options.headers },
-      signal: controller.signal,
-    })
-    clearTimeout(id)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '请求失败')
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers: { ...headers, ...options.headers },
+        signal: controller.signal,
+      })
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error('请求超时，请确认后端服务已启动')
+      }
+      throw new Error('无法连接服务器，请确认后端服务已启动')
+    }
+
+    const contentType = res.headers.get('content-type') || ''
+    const body = await res.text()
+    let data: any = null
+
+    if (body && contentType.includes('application/json')) {
+      try {
+        data = JSON.parse(body)
+      } catch {
+        throw new Error('服务器返回了无效的 JSON 数据')
+      }
+    } else if (body) {
+      throw new Error(`服务器响应格式异常（HTTP ${res.status}）`)
+    }
+
+    if (!res.ok) throw new Error(data?.error || `请求失败（HTTP ${res.status}）`)
     return data
   } finally {
     clearTimeout(id)
@@ -65,4 +90,27 @@ export const api = {
   getCatState: () => request('/cat/state'),
   saveCatState: (data: Record<string, any>) =>
     request('/cat/state', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // AI 学习助手（卡片）
+  getStudyInsights: () => request('/study/insights'),
+  refreshStudyInsight: (kind: string) =>
+    request(`/study/insights/${kind}/refresh`, { method: 'POST' }),
+  getSessionSummary: (sessionId: number) =>
+    request(`/study/sessions/${sessionId}/summary`, { method: 'POST' }),
+
+  // 待办拆解（提议 → 确认）
+  // 要等模型，8 秒不够，单独放宽到 30 秒
+  breakdownTodos: (goal: string) =>
+    request(
+      '/study/proposals/todo-breakdown',
+      { method: 'POST', body: JSON.stringify({ goal }) },
+      30000
+    ),
+  confirmProposal: (id: number, items?: string[]) =>
+    request(`/study/proposals/${id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
+  dismissProposal: (id: number) =>
+    request(`/study/proposals/${id}/dismiss`, { method: 'POST' }),
 }
