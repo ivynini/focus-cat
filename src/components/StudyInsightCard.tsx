@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { api } from '../lib/api'
 import { InsightCardView, type InsightCardData } from './InsightCardView'
+import { AskSheet } from './AskSheet'
 import { scale } from '../lib/scale'
 
 export type { InsightAction, InsightCardData, InsightMetric } from './InsightCardView'
@@ -23,6 +24,7 @@ export function StudyInsightCard({ enabled }: Props) {
   const [streak, setStreak] = useState<InsightCardData | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [showAsk, setShowAsk] = useState(false)
 
   const load = useCallback(() => {
     if (!enabled) {
@@ -114,7 +116,11 @@ export function StudyInsightCard({ enabled }: Props) {
       <View style={styles.content}>
         <InsightCardView card={card} />
       </View>
+      <TouchableOpacity style={styles.askLink} onPress={() => setShowAsk(true)}>
+        <Text style={styles.askLinkText}>问点别的 →</Text>
+      </TouchableOpacity>
       {streakRow}
+      <AskSheet visible={showAsk} onClose={() => setShowAsk(false)} />
     </View>
   )
 }
@@ -162,4 +168,6 @@ const styles = StyleSheet.create({
     borderTopColor: '#F0E4D8',
   },
   streakText: { fontSize: scale(11), fontFamily: 'PixelSC', color: '#B08060' },
+  askLink: { paddingHorizontal: scale(16), paddingBottom: scale(12) },
+  askLinkText: { fontSize: scale(11), fontFamily: 'PixelSC', color: '#F4A460' },
 })

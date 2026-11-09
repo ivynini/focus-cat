@@ -98,6 +98,14 @@ export const api = {
   getSessionSummary: (sessionId: number) =>
     request(`/study/sessions/${sessionId}/summary`, { method: 'POST' }),
 
+  // 问答：要等模型多步（查表 -> 再答），放宽到 30 秒
+  askStudy: (question: string) =>
+    request(
+      '/study/ask',
+      { method: 'POST', body: JSON.stringify({ question }) },
+      30000
+    ),
+
   // 待办拆解（提议 → 确认）
   // 要等模型，8 秒不够，单独放宽到 30 秒
   breakdownTodos: (goal: string) =>

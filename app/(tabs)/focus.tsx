@@ -5,7 +5,9 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { AnimatedSprite } from '../../src/components/AnimatedSprite'
-import { InsightCardView, type InsightCardData } from '../../src/components/InsightCardView'
+import { InsightCardData } from '../../src/components/InsightCardView'
+import { ConfirmDialog } from '../../src/components/ConfirmDialog'
+import { FocusCompletionCard } from '../../src/components/FocusCompletionCard'
 import { TodoBreakdownModal } from '../../src/components/TodoBreakdownModal'
 import { useCatStore } from '../../src/stores/catStore'
 import { useAuth } from '../../src/stores/authStore'
@@ -611,84 +613,39 @@ export default function FocusScreen() {
         </View>
 
         {/* ====== 暂停确认弹窗 ====== */}
-        <Modal visible={showPauseConfirm} animationType="fade" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.confirmCard}>
-              <Text style={styles.confirmTitle}>⏸️ 暂停</Text>
-              <Text style={styles.confirmMessage}>小猫在等你回来</Text>
-              <View style={styles.confirmBtnRow}>
-                <TouchableOpacity
-                  style={styles.confirmCancelBtn}
-                  onPress={() => setShowPauseConfirm(false)}
-                >
-                  <Text style={styles.confirmCancelText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmOkBtn}
-                  onPress={() => {
-                    setShowPauseConfirm(false)
-                    if (focusMode === 'countup') {
-                      completeFocus(coinsEarned)
-                    }
-                    setIsRunning(false)
-                  }}
-                >
-                  <Text style={styles.confirmOkText}>确定</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        <ConfirmDialog
+          visible={showPauseConfirm}
+          title="⏸️ 暂停"
+          message="小猫在等你回来"
+          onCancel={() => setShowPauseConfirm(false)}
+          onConfirm={() => {
+            setShowPauseConfirm(false)
+            if (focusMode === 'countup') {
+              completeFocus(coinsEarned)
+            }
+            setIsRunning(false)
+          }}
+        />
 
         {/* ====== 退出确认弹窗 ====== */}
-        <Modal visible={showExitConfirm} animationType="fade" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.confirmCard}>
-              <Text style={styles.confirmTitle}>⚠️ 退出</Text>
-              <Text style={styles.confirmMessage}>真的要退出吗？</Text>
-              <View style={styles.confirmBtnRow}>
-                <TouchableOpacity
-                  style={styles.confirmCancelBtn}
-                  onPress={() => setShowExitConfirm(false)}
-                >
-                  <Text style={styles.confirmCancelText}>取消</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmOkBtn}
-                  onPress={() => {
-                    setShowExitConfirm(false)
-                    goBack()
-                  }}
-                >
-                  <Text style={styles.confirmOkText}>确定</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        <ConfirmDialog
+          visible={showExitConfirm}
+          title="⚠️ 退出"
+          message="真的要退出吗？"
+          onCancel={() => setShowExitConfirm(false)}
+          onConfirm={() => {
+            setShowExitConfirm(false)
+            goBack()
+          }}
+        />
 
         {/* ====== 专注完成反馈 ====== */}
         {showCompletion && (
-          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-            <View style={styles.completionOverlay}>
-              <View style={styles.completionCard}>
-                <Text style={styles.completionTitle}>专注完成!</Text>
-                <Text style={styles.completionCoins}>+{earnedCoins} 🪙</Text>
-                <Text style={styles.completionHint}>金币已存入猫咪账户</Text>
-                {summaryCard && (
-                  <View style={styles.completionInsight}>
-                    <InsightCardView card={summaryCard} compact hideActions />
-                  </View>
-                )}
-                <TouchableOpacity
-                  style={styles.completionBtn}
-                  onPress={() => { setShowCompletion(false); setSummaryCard(null) }}
-                >
-                  <Text style={styles.completionBtnText}>好的</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+          <FocusCompletionCard
+            coins={earnedCoins}
+            card={summaryCard}
+            onClose={() => { setShowCompletion(false); setSummaryCard(null) }}
+          />
         )}
       </ImageBackground>
     </SafeAreaView>
@@ -918,53 +875,4 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
   },
   catShopBtnText: { fontSize: scale(11), color: '#FFFFFF', fontFamily: 'Pixel' },
-
-  // ====== 完成反馈 ======
-  completionOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
-  completionCard: {
-    width: '80%',
-    backgroundColor: '#FFFFFF', borderRadius: scale(14),
-    paddingHorizontal: scale(16), paddingVertical: scale(18),
-    alignItems: 'center', gap: scale(6),
-    borderWidth: 3, borderColor: '#F4A460',
-  },
-  completionInsight: {
-    width: '100%',
-    marginTop: scale(2),
-    paddingTop: scale(8),
-    borderTopWidth: 1,
-    borderTopColor: '#F0E4D8',
-  },
-  completionTitle: { fontSize: scale(16), fontFamily: 'Pixel', color: '#F4A460' },
-  completionCoins: { fontSize: scale(22), fontFamily: 'Pixel', color: '#FFB74D' },
-  completionHint: { fontSize: scale(11), color: '#A1887F' },
-  completionBtn: {
-    marginTop: scale(4), backgroundColor: '#F4A460',
-    paddingHorizontal: scale(26), paddingVertical: scale(8),
-    borderRadius: scale(20),
-  },
-  completionBtnText: { fontSize: scale(13), fontFamily: 'Pixel', color: '#FFFFFF' },
-
-  // ====== 确认弹窗 ======
-  confirmCard: {
-    backgroundColor: '#FFFFFF', borderRadius: scale(16),
-    paddingHorizontal: scale(32), paddingVertical: scale(24),
-    alignItems: 'center', gap: scale(12),
-    borderWidth: 3, borderColor: '#F4A460',
-    width: '80%',
-  },
-  confirmTitle: { fontSize: scale(18), fontFamily: 'Pixel', color: '#5D4037' },
-  confirmMessage: { fontSize: scale(14), color: '#8D6E63', textAlign: 'center' },
-  confirmBtnRow: { flexDirection: 'row', gap: scale(16), marginTop: scale(8) },
-  confirmCancelBtn: {
-    paddingHorizontal: scale(28), paddingVertical: scale(10),
-    borderRadius: scale(20), borderWidth: 2, borderColor: '#E0D0C0',
-    backgroundColor: '#FFFFFF',
-  },
-  confirmCancelText: { fontSize: scale(14), color: '#8D6E63', fontWeight: '600' },
-  confirmOkBtn: {
-    paddingHorizontal: scale(28), paddingVertical: scale(10),
-    borderRadius: scale(20), backgroundColor: '#F4A460',
-  },
-  confirmOkText: { fontSize: scale(14), color: '#FFFFFF', fontWeight: '600' },
 })
