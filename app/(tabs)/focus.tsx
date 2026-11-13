@@ -8,6 +8,7 @@ import { AnimatedSprite } from '../../src/components/AnimatedSprite'
 import { InsightCardData } from '../../src/components/InsightCardView'
 import { ConfirmDialog } from '../../src/components/ConfirmDialog'
 import { FocusCompletionCard } from '../../src/components/FocusCompletionCard'
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { TodoBreakdownModal } from '../../src/components/TodoBreakdownModal'
 import { useCatStore } from '../../src/stores/catStore'
 import { useAuth } from '../../src/stores/authStore'
@@ -110,6 +111,17 @@ export default function FocusScreen() {
   const awardedCoinsRef = useRef(0)
   const pendingCoinAwardRef = useRef(0)
   const completingRef = useRef(false)
+  // 计时以"开始时刻"为准，不靠每秒减一：真机锁屏或切后台时 JS 定时器会被节流，
+  // 计数式计时会停住或者变慢，回来一对时间就全错了。
+  const runStartedAtRef = useRef<number | null>(null)
+  const remainingAtStartRef = useRef(0)
+  const elapsedAtStartRef = useRef(0)
+
+  const beginRun = useCallback(() => {
+    runStartedAtRef.current = Date.now()
+    remainingAtStartRef.current = timeLeft
+    elapsedAtStartRef.current = elapsed
+  }, [timeLeft, elapsed])
 
   // ============ 加载持久化数据 ============
   const isLoggedIn = useAuth((s) => s.isLoggedIn)
@@ -130,28 +142,59 @@ export default function FocusScreen() {
     }).catch(() => {})
   }, [isLoggedIn, loadTodos])
 
-  // ============ 计时器 ============
+  // ============ 计时器（时间戳驱动） ============
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>
-    if (isFocusing && isRunning) {
-      timer = setInterval(() => {
-        if (focusMode === 'countdown') {
-          setTimeLeft((t) => {
-            if (t <= 1) {
-              setIsRunning(false)
-              setTotalSeconds(focusDuration * 60)
-              pendingCoinAwardRef.current = focusDuration
-              return focusDuration * 60
-            }
-            return t - 1
-          })
-        } else if (focusMode === 'countup') {
-          setElapsed((e) => e + 1)
-        }
-      }, 1000)
+    if (!isFocusing || !isRunning) return
+    if (runStartedAtRef.current === null) {
+      runStartedAtRef.current = Date.now()
+      remainingAtStartRef.current = timeLeft
+      elapsedAtStartRef.current = elapsed
     }
+
+    let finished = false
+
+    const tick = () => {
+      const startedAt = runStartedAtRef.current
+      if (startedAt === null || finished) return
+      const passed = Math.floor((Date.now() - startedAt) / 1000)
+
+      if (focusMode === 'countdown') {
+        const next = Math.max(remainingAtStartRef.current - passed, 0)
+        setTimeLeft((prev) => (prev === next ? prev : next))
+        if (next <= 0) {
+          finished = true
+          runStartedAtRef.current = null
+          setIsRunning(false)
+          setTotalSeconds(focusDuration * 60)
+          setTimeLeft(focusDuration * 60)
+          pendingCoinAwardRef.current = focusDuration
+        }
+      } else if (focusMode === 'countup') {
+        const next = elapsedAtStartRef.current + passed
+        setElapsed((prev) => (prev === next ? prev : next))
+      }
+    }
+
+    // 250ms 一跳：锁屏回来时最多差 0.25 秒，视觉上也不会卡秒
+    const timer = setInterval(tick, 250)
+    tick()
     return () => clearInterval(timer)
+    // 不依赖 timeLeft/elapsed：它们在 tick 里每 250ms 变一次，
+    // 放进依赖会让 effect 反复重建。起点由 beginRun() 负责。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, isFocusing, focusMode, focusDuration])
+
+  // 专注时不熄屏，否则锁屏会让计时看起来像卡住了
+  useEffect(() => {
+    let active = false
+    if (isFocusing && isRunning) {
+      active = true
+      activateKeepAwakeAsync().catch(() => {})
+    }
+    return () => {
+      if (active) deactivateKeepAwake().catch(() => {})
+    }
+  }, [isFocusing, isRunning])
 
   // ============ 专注完成：保存记录 + 发放金币 ============
   const completeFocus = async (coins: number) => {
@@ -286,6 +329,7 @@ export default function FocusScreen() {
     setIsBreak(false)
     setIsFocusing(true)
     activeSessionId.current = null
+    runStartedAtRef.current = null
       awardedCoinsRef.current = 0
       completingRef.current = false
   }
@@ -329,6 +373,7 @@ export default function FocusScreen() {
     setIsBreak(false)
     setIsFocusing(true)
     activeSessionId.current = session.id
+    runStartedAtRef.current = null
       awardedCoinsRef.current = 0
       completingRef.current = false
   }
@@ -545,6 +590,7 @@ export default function FocusScreen() {
                     if (isRunning) {
                       setShowPauseConfirm(true)
                     } else {
+                      beginRun()
                       setIsRunning(true)
                     }
                   }}
@@ -556,6 +602,7 @@ export default function FocusScreen() {
                   onPress={() => {
                     setIsRunning(false)
                     setIsBreak(false)
+                    runStartedAtRef.current = null
                     if (focusMode === 'countdown') {
                       setTimeLeft(focusDuration * 60)
                       setTotalSeconds(focusDuration * 60)
