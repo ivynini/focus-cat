@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   StyleSheet, Text, View, TouchableOpacity, TextInput,
-  Modal, ScrollView, ImageBackground, Alert,
+  Modal, ScrollView, ImageBackground, Alert, AppState,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { AnimatedSprite } from '../../src/components/AnimatedSprite'
@@ -116,6 +116,8 @@ export default function FocusScreen() {
   const runStartedAtRef = useRef<number | null>(null)
   const remainingAtStartRef = useRef(0)
   const elapsedAtStartRef = useRef(0)
+  // 计时 effect 里注册的"立刻重算"入口，供回到前台时调用
+  const tickRef = useRef<() => void>(() => {})
 
   const beginRun = useCallback(() => {
     runStartedAtRef.current = Date.now()
@@ -176,13 +178,25 @@ export default function FocusScreen() {
     }
 
     // 250ms 一跳：锁屏回来时最多差 0.25 秒，视觉上也不会卡秒
+    tickRef.current = tick
     const timer = setInterval(tick, 250)
     tick()
-    return () => clearInterval(timer)
+    return () => { clearInterval(timer); tickRef.current = () => {} }
     // 不依赖 timeLeft/elapsed：它们在 tick 里每 250ms 变一次，
     // 放进依赖会让 effect 反复重建。起点由 beginRun() 负责。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, isFocusing, focusMode, focusDuration])
+
+  // 回到前台立刻对齐一次：后台期间 JS 可能被完全冻结，
+  // 不等下一个 250ms 心跳，先把时间补上（顺便把防熄屏重新打开）
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return
+      tickRef.current()
+      if (isRunning) activateKeepAwakeAsync().catch(() => {})
+    })
+    return () => subscription.remove()
+  }, [isRunning])
 
   // 专注时不熄屏，否则锁屏会让计时看起来像卡住了
   useEffect(() => {
