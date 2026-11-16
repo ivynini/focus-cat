@@ -49,7 +49,17 @@ const ACCESSORY_ITEMS: ShopItem[] = [
 // ============== 常量 ==============
 const DECAY_INTERVAL = 2000          // 每2秒衰减一次
 const PET_HAPPINESS_GAIN = 8         // 摸猫增加的开心值
-const LOW_THRESHOLD = 30             // 低于此值变红
+
+/**
+ * 进度条配色：0 分红，50 分黄，100 分绿，按色相线性过渡。
+ * 不用 RGB 插值 —— 黄到绿那段会经过发灰的土黄（#d1bf25 这种），不好看；
+ * 固定饱和度和亮度只推色相，每一档都是干净的橙/黄/草绿。
+ */
+function barColor(value: number): string {
+  const v = Math.max(0, Math.min(100, value))
+  const hue = v <= 50 ? (v / 50) * 50 : 50 + ((v - 50) / 50) * 70
+  return `hsl(${Math.round(hue)}, 72%, 50%)`
+}
 
 type PanelType = 'foodShop' | 'accShop' | 'feed' | 'wardrobe' | null
 
@@ -106,7 +116,7 @@ export default function CatScreen() {
   }
 
   // ============== 进度条颜色 ==============
-  const barColor = (value: number) => (value <= LOW_THRESHOLD ? '#EF5350' : value >= 60 ? '#81C784' : '#FFB74D')
+  // 低值红 → 中值黄 → 高值绿，按色相插值，不是三档突变
 
   // ============== 当前面板商品 ==============
   const getPanelItems = (): ShopItem[] => {
@@ -128,10 +138,6 @@ export default function CatScreen() {
   const CAT_W = Math.round(sw * 0.7 * 1.4)
   const CAT_H = Math.round(CAT_W * (580 / 480))   // 猫帧比例 480:580 → ~476
   const BOW_H = Math.round(CAT_W * (1220 / 960))  // bow 比例 960:1220 → ~501
-
-  // 猫咪等级（基于金币数）
-  const catLevel = 1
-  const levelProgress = 0.5
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -156,18 +162,18 @@ export default function CatScreen() {
             <Text style={styles.barLabel}>饱腹度</Text>
             <View style={styles.barRow}>
               <View style={styles.barBg}>
-                <View style={[styles.barFill, { width: `${hunger}%`, backgroundColor: hunger <= LOW_THRESHOLD ? '#EF5350' : '#FFB74D' }]} />
+                <View style={[styles.barFill, { width: `${Math.min(100, Math.max(0, hunger))}%`, backgroundColor: barColor(hunger) }]} />
               </View>
-              <Text style={[styles.barNum, hunger <= LOW_THRESHOLD && { color: '#EF5350' }]}>{Math.round(hunger)}</Text>
+              <Text style={styles.barNum}>{Math.round(hunger)}</Text>
             </View>
           </View>
           <View style={styles.barCol}>
             <Text style={styles.barLabel}>开心值</Text>
             <View style={styles.barRow}>
               <View style={styles.barBg}>
-                <View style={[styles.barFill, { width: `${happiness}%` as any, backgroundColor: barColor(happiness) }]} />
+                <View style={[styles.barFill, { width: `${Math.min(100, Math.max(0, happiness))}%`, backgroundColor: barColor(happiness) }]} />
               </View>
-              <Text style={[styles.barNum, happiness <= LOW_THRESHOLD && { color: '#EF5350' }]}>{Math.round(happiness)}</Text>
+              <Text style={styles.barNum}>{Math.round(happiness)}</Text>
             </View>
           </View>
         </View>
@@ -243,17 +249,6 @@ export default function CatScreen() {
               <Image source={ICON_WARDROBE} style={styles.sideBtnIconImg} />
               <Text style={[styles.sideBtnLabel, activePanel === 'wardrobe' && styles.sideBtnLabelActive]}>衣柜</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* ====== 猫咪等级进度条 ====== */}
-        <View style={styles.levelBarWrap}>
-          <View style={styles.levelBarHeader}>
-            <Text style={styles.levelLabel}>Lv.{catLevel}</Text>
-            <Text style={styles.levelProgressText}>{coins % 500}/{500}</Text>
-          </View>
-          <View style={styles.levelBarBg}>
-            <View style={[styles.levelBarFill, { width: `${levelProgress * 100}%` }]} />
           </View>
         </View>
 
@@ -390,7 +385,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   barFill: { height: '100%', borderRadius: scale(4) },
-  barNum: { fontSize: scale(13), color: '#3E2723', fontWeight: '800' },
+  barNum: {
+    fontSize: scale(13), color: '#FFFFFF', fontWeight: '800',
+    // 数字压在木纹背景上，加一层描边阴影保证任何底色都看得清
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
 
   // ====== 主区域 ======
   mainArea: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
@@ -413,34 +414,6 @@ const styles = StyleSheet.create({
   },
   catTouch: { alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1 },
   petHit: { position: 'absolute' },
-
-  // ====== 等级进度条 ======
-  levelBarWrap: {
-    alignItems: 'center', paddingTop: scale(10), paddingBottom: scale(4),
-  },
-  levelBarHeader: {
-    width: sw * 0.88,
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
-    marginBottom: scale(4),
-  },
-  levelLabel: {
-    fontSize: scale(16), fontWeight: '800', color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  levelProgressText: {
-    fontSize: scale(11), fontWeight: '600', color: 'rgba(255,255,255,0.8)',
-  },
-  levelBarBg: {
-    width: sw * 0.88, height: scale(12),
-    backgroundColor: 'rgba(255,255,255,0.4)',
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.6)', borderRadius: scale(6),
-    overflow: 'hidden',
-  },
-  levelBarFill: {
-    height: '100%', backgroundColor: '#66BB6A', borderRadius: scale(5),
-  },
 
   // ====== 底部面板 ======
   panelOverlay: {
