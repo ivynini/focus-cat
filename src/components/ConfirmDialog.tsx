@@ -7,6 +7,8 @@ interface Props {
   message: string
   confirmText?: string
   cancelText?: string
+  /** 只有一个"知道了"的提醒类弹窗不显示取消按钮。 */
+  hideCancel?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -18,6 +20,7 @@ export function ConfirmDialog({
   message,
   confirmText = '确定',
   cancelText = '取消',
+  hideCancel = false,
   onConfirm,
   onCancel,
 }: Props) {
@@ -28,9 +31,11 @@ export function ConfirmDialog({
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
-              <Text style={styles.cancelText}>{cancelText}</Text>
-            </TouchableOpacity>
+            {!hideCancel && (
+              <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+                <Text style={styles.cancelText}>{cancelText}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.okBtn} onPress={onConfirm}>
               <Text style={styles.okText}>{confirmText}</Text>
             </TouchableOpacity>

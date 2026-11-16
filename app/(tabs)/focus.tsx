@@ -14,7 +14,7 @@ import { useCatStore } from '../../src/stores/catStore'
 import { useAuth } from '../../src/stores/authStore'
 import { api } from '../../src/lib/api'
 import { scale, sw } from '../../src/lib/scale'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 
 const BG_IMAGE = require('../../bg/bg1.png')
 const BOW_IMAGE = require('../../catactivity/accessory/bow.png')
@@ -198,7 +198,7 @@ export default function FocusScreen() {
     return () => subscription.remove()
   }, [isRunning])
 
-  // 专注时不熄屏，否则锁屏会让计时看起来像卡住了
+  // ============ 专注时不熄屏，否则锁屏会让计时看起来像卡住了 ============
   useEffect(() => {
     let active = false
     if (isFocusing && isRunning) {
@@ -209,6 +209,52 @@ export default function FocusScreen() {
       if (active) deactivateKeepAwake().catch(() => {})
     }
   }, [isFocusing, isRunning])
+
+  // ============ 切走再回来：提醒一次 ============
+  // 只在"专注进行中"记账：暂停中、已完成、配置界面都不算被打断。
+  // 用 ref 读快照，是因为 useFocusEffect 的 cleanup 拿不到最新 state。
+  const leaveGuardRef = useRef({
+    focusing: false,
+    running: false,
+    mode: 'countdown' as TimerMode,
+    completion: false,
+  })
+  const leftWhileFocusedRef = useRef(false)
+  const focusEffectSeenRef = useRef(false)
+  const [showLeaveWarning, setShowLeaveWarning] = useState(false)
+
+  // 退出专注态时清掉提醒，避免下次进专注页凭空弹一个
+  useEffect(() => {
+    if (!isFocusing) setShowLeaveWarning(false)
+  }, [isFocusing])
+
+  useEffect(() => {
+    leaveGuardRef.current = {
+      focusing: isFocusing,
+      running: isRunning,
+      mode: focusMode,
+      completion: showCompletion,
+    }
+  }, [isFocusing, isRunning, focusMode, showCompletion])
+
+  const wasFocusedAndUndone = useCallback(() => {
+    const s = leaveGuardRef.current
+    return s.focusing && !s.completion && (s.running || s.mode === 'notimer')
+  }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      // 第一次聚焦是进页面本身，不算"切走再回来"
+      if (focusEffectSeenRef.current && leftWhileFocusedRef.current) {
+        leftWhileFocusedRef.current = false
+        if (wasFocusedAndUndone()) setShowLeaveWarning(true)
+      }
+      focusEffectSeenRef.current = true
+      return () => {
+        leftWhileFocusedRef.current = wasFocusedAndUndone()
+      }
+    }, [wasFocusedAndUndone])
+  )
 
   // ============ 专注完成：保存记录 + 发放金币 ============
   const completeFocus = async (coins: number) => {
@@ -698,6 +744,17 @@ export default function FocusScreen() {
             setShowExitConfirm(false)
             goBack()
           }}
+        />
+
+        {/* ====== 切走再回来的提醒 ====== */}
+        <ConfirmDialog
+          visible={showLeaveWarning}
+          title="💡 提醒"
+          message="尽量不要切换界面打断专注哦"
+          confirmText="知道了"
+          hideCancel
+          onCancel={() => setShowLeaveWarning(false)}
+          onConfirm={() => setShowLeaveWarning(false)}
         />
 
         {/* ====== 专注完成反馈 ====== */}
