@@ -1,20 +1,47 @@
-import { StyleSheet, Text, View, Image, ScrollView, TouchableOpacity, TextInput } from 'react-native'
+import { StyleSheet, Text, View, Image, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { UserAvatar } from '../src/components/UserAvatar'
 import { usePostStore } from '../src/stores/postStore'
+import { useAuth } from '../src/stores/authStore'
+import { api } from '../src/lib/api'
 import { scale, sw } from '../src/lib/scale'
 
 const MOCK_AVATAR = require('../catactivity/未命名/F0.png')
 
-// ==================== Mock Comments ====================
+// ==================== 评论 ====================
 
-const MOCK_COMMENTS = [
-  { id: 'c1', user: '橘子味的猫', avatar: MOCK_AVATAR, content: '太可爱了吧！', time: '10分钟前', likes: 12 },
-  { id: 'c2', user: '养猫达人', avatar: MOCK_AVATAR, content: '学到了，谢谢分享～', time: '25分钟前', likes: 5 },
-  { id: 'c3', user: '喵星人驻地球大使', avatar: MOCK_AVATAR, content: '深有同感，我家那只也是这样的！', time: '1小时前', likes: 28 },
-]
+interface CommentItem {
+  id: string
+  username: string
+  nickname: string
+  avatar: any
+  content: string
+  time: string
+}
+
+function fmtRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(diff)) return ''
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  return `${Math.floor(hr / 24)}天前`
+}
+
+function toCommentItem(row: any): CommentItem {
+  return {
+    id: String(row?.id ?? ''),
+    username: row?.username || '',
+    nickname: row?.nickname || row?.username || '猫友',
+    avatar: row?.avatar ? { uri: row.avatar } : MOCK_AVATAR,
+    content: row?.content || '',
+    time: row?.created_at ? fmtRelative(row.created_at) : '',
+  }
+}
 
 export default function PostDetailScreen() {
   const { post: postJson, type } = useLocalSearchParams<{ post: string; type: string }>()
@@ -24,6 +51,8 @@ export default function PostDetailScreen() {
   const [favorited, setFavorited] = useState(false)
   const [commentText, setCommentText] = useState('')
   const { favorites, toggleFavorite, toggleSquareLike, toggleHelpLike } = usePostStore()
+  const { isLoggedIn, username: myUsername } = useAuth()
+  const [comments, setComments] = useState<CommentItem[]>([])
 
   let post: any = null
   try {
@@ -37,6 +66,52 @@ export default function PostDetailScreen() {
     setLikes(post.likes)
     setFavorited(favorites.includes(post.id))
     setInitDone(true)
+  }
+
+  const postId = post?.id as string | undefined
+  const isDiaryPost = type === 'diary'
+
+  // 评论从服务端拉；日记是私密的，没有评论区
+  useEffect(() => {
+    if (!postId || isDiaryPost) return
+    let cancelled = false
+    api.getComments(postId)
+      .then((rows: any) => {
+        if (!cancelled && Array.isArray(rows)) setComments(rows.map(toCommentItem))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [postId, isDiaryPost])
+
+  const handleSendComment = async () => {
+    const text = commentText.trim()
+    if (!text) return
+    if (!isLoggedIn) {
+      Alert.alert('还没登录', '登录之后才能评论')
+      return
+    }
+    try {
+      const created: any = await api.createComment(postId as string, text)
+      setComments((prev) => [...prev, toCommentItem(created)])
+      setCommentText('')
+    } catch (e: any) {
+      Alert.alert('评论失败', e?.message || '请检查网络连接后重试')
+    }
+  }
+
+  const handleDeleteComment = (comment: CommentItem) => {
+    Alert.alert('删除这条评论？', '删了就找不回来了。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          api.deleteComment(comment.id)
+            .then(() => setComments((prev) => prev.filter((c) => c.id !== comment.id)))
+            .catch((e: any) => Alert.alert('删除失败', e?.message || '请检查网络连接后重试'))
+        },
+      },
+    ])
   }
 
   if (!post) {
@@ -56,8 +131,10 @@ export default function PostDetailScreen() {
     )
   }
 
-  const isSquare = type === 'square'
-  const isHelp = type === 'help'
+  // 显式标成 boolean：否则 TS 会在 {isHelp && ...} 里把 type 收窄成 'help'，
+  // 里面那句 `type === 'square'` 就变成「不可能成立的比较」而报错。
+  const isSquare: boolean = type === 'square'
+  const isHelp: boolean = type === 'help'
   const isDiary = type === 'diary'
 
   return (
@@ -116,7 +193,7 @@ export default function PostDetailScreen() {
                 </TouchableOpacity>
                 <View style={styles.interactionBtn}>
                   <Text style={styles.interactionIcon}>💬</Text>
-                  <Text style={styles.interactionText}>{MOCK_COMMENTS.length}</Text>
+                  <Text style={styles.interactionText}>{comments.length}</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.interactionBtn}
@@ -173,7 +250,7 @@ export default function PostDetailScreen() {
               </TouchableOpacity>
               <View style={styles.interactionBtn}>
                 <Text style={styles.interactionIcon}>💬</Text>
-                <Text style={styles.interactionText}>{post.replies + MOCK_COMMENTS.length}</Text>
+                <Text style={styles.interactionText}>{comments.length}</Text>
               </View>
               <TouchableOpacity
                 style={styles.interactionBtn}
@@ -214,23 +291,32 @@ export default function PostDetailScreen() {
         {/* ===== 评论区域 (not for diary) ===== */}
         {!isDiary && (
           <View style={styles.commentSection}>
-            <Text style={styles.commentSectionTitle}>评论 {MOCK_COMMENTS.length}</Text>
-            {MOCK_COMMENTS.map((c) => (
-              <View key={c.id} style={styles.commentItem}>
-                <Image source={c.avatar} style={styles.commentAvatar} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.commentTop}>
-                    <Text style={styles.commentUsername}>{c.user}</Text>
-                    <Text style={styles.commentTime}>{c.time}</Text>
+            <Text style={styles.commentSectionTitle}>评论 {comments.length}</Text>
+            {comments.length === 0 && (
+              <Text style={styles.commentEmpty}>还没有评论，来说点什么吧</Text>
+            )}
+            {comments.map((c) => {
+              const mine = !!myUsername && c.username === myUsername
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.commentItem}
+                  activeOpacity={mine ? 0.7 : 1}
+                  onLongPress={mine ? () => handleDeleteComment(c) : undefined}
+                  delayLongPress={500}
+                >
+                  <Image source={c.avatar} style={styles.commentAvatar} />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.commentTop}>
+                      <Text style={styles.commentUsername}>{c.nickname}</Text>
+                      <Text style={styles.commentTime}>{c.time}</Text>
+                    </View>
+                    <Text style={styles.commentContent}>{c.content}</Text>
+                    {mine && <Text style={styles.commentMineHint}>长按删除</Text>}
                   </View>
-                  <Text style={styles.commentContent}>{c.content}</Text>
-                  <View style={styles.commentBottom}>
-                    <Text style={styles.commentLikeText}>❤ {c.likes}</Text>
-                    <Text style={styles.commentReply}>回复</Text>
-                  </View>
-                </View>
-              </View>
-            ))}
+                </TouchableOpacity>
+              )
+            })}
           </View>
         )}
       </ScrollView>
@@ -245,7 +331,7 @@ export default function PostDetailScreen() {
             value={commentText}
             onChangeText={setCommentText}
           />
-          <TouchableOpacity style={styles.sendBtn} onPress={() => setCommentText('')}>
+          <TouchableOpacity style={styles.sendBtn} onPress={handleSendComment}>
             <Text style={styles.sendBtnText}>发送</Text>
           </TouchableOpacity>
         </View>
@@ -336,6 +422,8 @@ const styles = StyleSheet.create({
   commentBottom: { flexDirection: 'row', gap: scale(16), marginTop: scale(6) },
   commentLikeText: { fontSize: scale(10), color: '#A1887F' },
   commentReply: { fontSize: scale(10), color: '#A1887F' },
+  commentEmpty: { fontSize: scale(12), color: '#A1887F', marginBottom: scale(10) },
+  commentMineHint: { fontSize: scale(9), color: '#C0A090', marginTop: scale(4) },
 
   // Comment input
   commentInputBar: {

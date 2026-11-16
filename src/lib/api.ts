@@ -70,6 +70,13 @@ export const api = {
     request('/posts', { method: 'POST', body: JSON.stringify(data) }),
   toggleLike: (postId: string) => request(`/posts/${postId}/like`, { method: 'POST' }),
 
+  // 评论
+  getComments: (postId: string | number) => request(`/posts/${postId}/comments`),
+  createComment: (postId: string | number, content: string) =>
+    request(`/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify({ content }) }),
+  deleteComment: (commentId: string | number) =>
+    request(`/posts/comments/${commentId}`, { method: 'DELETE' }),
+
   // 日记（私密，只有自己能看）
   getDiary: () => request('/diary'),
   createDiary: (data: { title?: string; content: string; quote?: string; quote_author?: string }) =>
