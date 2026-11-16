@@ -23,7 +23,7 @@ const USER_TABS = ['猫岛广场', '猫语求助']
 export default function ProfileScreen() {
   const { isLoggedIn, profile, username } = useAuth()
   const { squarePosts, helpPosts, toggleSquareLike, toggleHelpLike, fetchPosts } = usePostStore()
-  const coins = useCatStore((s) => s.coins)
+  const fetchCatState = useCatStore((s) => s.fetchCatState)
   const catName = useCatStore((s) => s.catName)
   const catBirthday = useCatStore((s) => s.catBirthday)
   const setCatName = useCatStore((s) => s.setCatName)
@@ -37,8 +37,10 @@ export default function ProfileScreen() {
   const router = useRouter()
 
   // 真实统计：总专注分钟数来自 users.total_focus_minutes（服务端每次建专注记录时累加），
-  // 打卡天数来自 focus_sessions 的去重自然日，完成数来自 todos.completed。
+  // 打卡天数来自 focus_sessions 的去重自然日，完成数来自 todos.completed，
+  // 金币也走同一个接口 —— 之前读 catStore，而后端一断它就停在 0，看着像没钱。
   const [totalMinutes, setTotalMinutes] = useState(0)
+  const [coins, setCoins] = useState(0)
   const [focusDays, setFocusDays] = useState(0)
   const [doneTodos, setDoneTodos] = useState(0)
 
@@ -46,13 +48,19 @@ export default function ProfileScreen() {
     useCallback(() => {
       if (!isLoggedIn) {
         setTotalMinutes(0)
+        setCoins(0)
         setFocusDays(0)
         setDoneTodos(0)
         return
       }
       api.getMe()
-        .then((me: any) => setTotalMinutes(me?.total_focus_minutes || 0))
+        .then((me: any) => {
+          setTotalMinutes(me?.total_focus_minutes || 0)
+          setCoins(me?.coins || 0)
+        })
         .catch(() => {})
+      // 猫咪页/专注页读的是 catStore 里的金币，这里顺手刷一次保持一致
+      fetchCatState().catch(() => {})
       api.getFocusSessions()
         .then((rows: any[]) => {
           if (!Array.isArray(rows)) return
@@ -74,7 +82,7 @@ export default function ProfileScreen() {
         .catch(() => {})
       // 我的页也会列「我的帖子」，之前只有逛过世界页才有数据，这里补一次
       fetchPosts().catch(() => {})
-    }, [isLoggedIn, fetchPosts])
+    }, [isLoggedIn, fetchPosts, fetchCatState])
   )
 
   const formatMinutes = (minutes: number) => {
