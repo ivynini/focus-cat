@@ -22,7 +22,7 @@ const USER_TABS = ['猫岛广场', '猫语求助']
 
 export default function ProfileScreen() {
   const { isLoggedIn, profile, username } = useAuth()
-  const { squarePosts, helpPosts, toggleSquareLike, toggleHelpLike } = usePostStore()
+  const { squarePosts, helpPosts, toggleSquareLike, toggleHelpLike, fetchPosts } = usePostStore()
   const coins = useCatStore((s) => s.coins)
   const catName = useCatStore((s) => s.catName)
   const catBirthday = useCatStore((s) => s.catBirthday)
@@ -72,7 +72,9 @@ export default function ProfileScreen() {
           setDoneTodos(rows.filter((t) => !!t?.completed).length)
         })
         .catch(() => {})
-    }, [isLoggedIn])
+      // 我的页也会列「我的帖子」，之前只有逛过世界页才有数据，这里补一次
+      fetchPosts().catch(() => {})
+    }, [isLoggedIn, fetchPosts])
   )
 
   const formatMinutes = (minutes: number) => {

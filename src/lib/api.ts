@@ -70,6 +70,12 @@ export const api = {
     request('/posts', { method: 'POST', body: JSON.stringify(data) }),
   toggleLike: (postId: string) => request(`/posts/${postId}/like`, { method: 'POST' }),
 
+  // 日记（私密，只有自己能看）
+  getDiary: () => request('/diary'),
+  createDiary: (data: { title?: string; content: string; quote?: string; quote_author?: string }) =>
+    request('/diary', { method: 'POST', body: JSON.stringify(data) }),
+  deleteDiary: (id: string | number) => request(`/diary/${id}`, { method: 'DELETE' }),
+
   // 待办事项
   getTodos: () => request('/todos'),
   createTodo: (text: string) => request('/todos', { method: 'POST', body: JSON.stringify({ text }) }),

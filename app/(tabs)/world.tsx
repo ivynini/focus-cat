@@ -7,8 +7,9 @@ import { useAuth } from '../../src/stores/authStore'
 import { usePostStore, SquarePost, HelpPost } from '../../src/stores/postStore'
 import { api } from '../../src/lib/api'
 import { scale, sw } from '../../src/lib/scale'
+import { todayQuote } from '../../src/data/daily'
 
-// ==================== Mock Data ====================
+// ==================== 日记 ====================
 
 interface DiaryPost {
   id: string
@@ -17,31 +18,55 @@ interface DiaryPost {
   content: string
   focus: string
   weather: string
+  quote: string
+  quoteAuthor: string
 }
 
-const DIARY_POSTS: DiaryPost[] = [
-  {
-    id: 'dp1',
-    date: '05-15',
-    title: '今日金句：慢慢来，也会很快',
-    content: '今天专注 2 小时，心情不错。下雨了，窗外很安静。猫咪陪我一起度过了整个下午的工作时光。',
-    focus: '2h 15m', weather: '小雨 22℃',
-  },
-  {
-    id: 'dp2',
-    date: '05-14',
-    title: '今日金句：每次专注，都是对自己的投资',
-    content: '完成了四个番茄钟任务，猫咪的房间也升级了。给自己泡了杯花茶，庆祝一下今天的高效。',
-    focus: '1h 40m', weather: '晴 28℃',
-  },
-  {
-    id: 'dp3',
-    date: '05-12',
-    title: '今日金句：温柔地对待每一天',
-    content: '今天状态一般，只专注了 40 分钟。不过没关系，不必每天都打满鸡血，适当休息也很重要。',
-    focus: '40m', weather: '多云 25℃',
-  },
-]
+/** 本地时区的 Y-M-D，用来把日记和同一天的专注记录对上。 */
+function localDateKey(input: string): string {
+  const d = new Date(input)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+/** 每天的专注分钟数；计时器的 notimer 模式不计（和首页「今日专注」口径一致）。 */
+function minutesByDay(sessions: any[]): Record<string, number> {
+  const map: Record<string, number> = {}
+  sessions.forEach((s) => {
+    if (!s?.created_at || s.mode === 'notimer') return
+    const key = localDateKey(s.created_at)
+    if (!key) return
+    map[key] = (map[key] || 0) + (Number(s.duration) || 0)
+  })
+  return map
+}
+
+function formatFocus(minutes: number): string {
+  if (minutes <= 0) return '0m'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m}m`
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+function toDiaryPost(entry: any, minutes: Record<string, number>): DiaryPost {
+  const d = new Date(entry?.created_at ?? Date.now())
+  const date = Number.isNaN(d.getTime())
+    ? '--'
+    : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return {
+    id: String(entry?.id ?? ''),
+    date,
+    title: entry?.title || '今日日记',
+    content: entry?.content || '',
+    focus: formatFocus(minutes[localDateKey(entry?.created_at)] ?? 0),
+    // 天气要等定位/天气源接上（#6），先不编造
+    weather: '--',
+    quote: entry?.quote || '',
+    // 内容池里的作者自带「— 」前缀（首页金句卡直接用），这里要剥掉，避免渲染成「— — 孔子」
+    quoteAuthor: (entry?.quote_author || '').replace(/^—\s*/, ''),
+  }
+}
 
 const TABS = ['猫岛广场', '猫语求助', '我的日记']
 
@@ -49,7 +74,8 @@ const TABS = ['猫岛广场', '猫语求助', '我的日记']
 
 export default function WorldScreen() {
   const [tab, setTab] = useState(0)
-  const [diaryPosts, setDiaryPosts] = useState(DIARY_POSTS)
+  const [diaryPosts, setDiaryPosts] = useState<DiaryPost[]>([])
+  const dayMinutesRef = useRef<Record<string, number>>({})
   const [showCreate, setShowCreate] = useState(false)
   const [drawerType, setDrawerType] = useState<'likes' | 'favorites' | null>(null)
   const [searchText, setSearchText] = useState('')
@@ -66,6 +92,31 @@ export default function WorldScreen() {
       api.getLikeNotifications().then(setNotifications).catch(() => {})
     }
   }, [isLoggedIn])
+
+  // 日记和当天的专注时长一起拉：日记本身不存分钟数，按发布那天的专注记录算
+  const loadDiary = useCallback(() => {
+    if (!isLoggedIn) {
+      setDiaryPosts([])
+      dayMinutesRef.current = {}
+      return
+    }
+    Promise.all([
+      api.getDiary().catch(() => []),
+      api.getFocusSessions().catch(() => []),
+    ])
+      .then(([entries, sessions]) => {
+        const minutes = minutesByDay(Array.isArray(sessions) ? sessions : [])
+        dayMinutesRef.current = minutes
+        setDiaryPosts(
+          (Array.isArray(entries) ? entries : []).map((entry: any) => toDiaryPost(entry, minutes)),
+        )
+      })
+      .catch(() => {})
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    loadDiary()
+  }, [loadDiary])
 
   const openDrawer = useCallback((type: 'likes' | 'favorites') => {
     setDrawerType(type)
@@ -95,25 +146,42 @@ export default function WorldScreen() {
       } else if (tab === 1) {
         await addHelpPost({ content: text.trim(), bounty })
       } else if (tab === 2) {
-        // 日记
-        const now = new Date()
+        // 日记：落库，并把发布当天的金句一起存下来
+        if (!isLoggedIn) {
+          // 抛出去让弹窗保持打开，别把已经写好的内容弄丢
+          throw new Error('登录之后日记才会被保存，不会随着关掉 App 消失')
+        }
         const lines = text.trim().split('\n').filter(Boolean)
-        const title = lines[0] || '今日日记'
-        const content = lines.slice(1).join('\n') || text
-        const month = String(now.getMonth() + 1).padStart(2, '0')
-        const day = String(now.getDate()).padStart(2, '0')
-        const newPost: DiaryPost = {
-          id: `dp_${Date.now()}`,
-          date: `${month}-${day}`,
+        // 只有一行时把它当正文，别让标题和正文一模一样
+        const title = lines.length > 1 ? lines[0] : '今日日记'
+        const content = lines.length > 1 ? lines.slice(1).join('\n') : text.trim()
+        const quote = todayQuote()
+        const entry = await api.createDiary({
           title,
           content,
-          focus: '0m', weather: '--',
-        }
-        setDiaryPosts((prev) => [newPost, ...prev])
+          quote: quote.text,
+          quote_author: quote.author.replace(/^—\s*/, ''),
+        })
+        setDiaryPosts((prev) => [toDiaryPost(entry, dayMinutesRef.current), ...prev])
       }
     } catch (e: any) {
       Alert.alert('发布失败', e.message || '请检查网络连接后重试')
     }
+  }
+
+  const handleDeleteDiary = (post: DiaryPost) => {
+    Alert.alert('删除这篇日记？', '删了就找不回来了。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          api.deleteDiary(post.id)
+            .then(() => setDiaryPosts((prev) => prev.filter((p) => p.id !== post.id)))
+            .catch((e: any) => Alert.alert('删除失败', e?.message || '请检查网络连接后重试'))
+        },
+      },
+    ])
   }
 
   const getFavoritedPosts = () => {
@@ -180,7 +248,14 @@ export default function WorldScreen() {
       {tab === 1 && (
         <HelpTab posts={helpPosts} toggleLike={toggleHelpLike} toggleFavorite={toggleFavorite} favorites={favorites} onDetail={(p) => goToDetail(p, 'help')} />
       )}
-      {tab === 2 && <DiaryTab posts={diaryPosts} onDetail={(p) => goToDetail(p, 'diary')} />}
+      {tab === 2 && (
+        <DiaryTab
+          posts={diaryPosts}
+          onDetail={(p) => goToDetail(p, 'diary')}
+          isLoggedIn={isLoggedIn}
+          onDelete={handleDeleteDiary}
+        />
+      )}
 
       {/* Floating "+" button */}
       <TouchableOpacity style={styles.fab} onPress={() => setShowCreate(true)} activeOpacity={0.85}>
@@ -363,17 +438,37 @@ function HelpTab({
 // ==================== 我的日记 Tab (Private) ====================
 
 function DiaryTab({
-  posts, onDetail,
+  posts, onDetail, isLoggedIn, onDelete,
 }: {
-  posts: DiaryPost[]; onDetail: (p: DiaryPost) => void
+  posts: DiaryPost[]; onDetail: (p: DiaryPost) => void; isLoggedIn: boolean; onDelete: (p: DiaryPost) => void
 }) {
+  if (posts.length === 0) {
+    return (
+      <View style={styles.diaryEmpty}>
+        <Text style={styles.diaryEmptyIcon}>{isLoggedIn ? '📖' : '🔒'}</Text>
+        <Text style={styles.diaryEmptyTitle}>{isLoggedIn ? '还没有日记' : '登录后写日记'}</Text>
+        <Text style={styles.diaryEmptyHint}>
+          {isLoggedIn
+            ? '点右下角 + 写第一篇。会自动带上当天的金句，和那天真实的专注时长。'
+            : '登录之后，日记会存到服务器上，不会随着关掉 App 消失。'}
+        </Text>
+      </View>
+    )
+  }
+
   return (
     <FlatList
       data={posts}
       keyExtractor={(p) => p.id}
       contentContainerStyle={styles.tabContent}
       renderItem={({ item }) => (
-        <TouchableOpacity style={styles.diaryCard} activeOpacity={0.9} onPress={() => onDetail(item)}>
+        <TouchableOpacity
+          style={styles.diaryCard}
+          activeOpacity={0.9}
+          onPress={() => onDetail(item)}
+          onLongPress={() => onDelete(item)}
+          delayLongPress={500}
+        >
           {/* User avatar + date */}
           <View style={styles.diaryTop}>
             <UserAvatar size={scale(36)} />
@@ -388,6 +483,13 @@ function DiaryTab({
 
           {/* Content */}
           <Text style={styles.diaryContent} numberOfLines={3}>{item.content}</Text>
+
+          {/* 今日金句：发布时那一句，内容池之后换掉也不影响这条 */}
+          {!!item.quote && (
+            <Text style={styles.diaryQuote} numberOfLines={2}>
+              「{item.quote}」{item.quoteAuthor ? ` — ${item.quoteAuthor}` : ''}
+            </Text>
+          )}
 
           {/* Focus time */}
           <View style={styles.diaryFocusRow}>
@@ -577,6 +679,19 @@ const styles = StyleSheet.create({
     fontSize: scale(11), color: '#F4A460', fontWeight: '600',
     backgroundColor: '#FFF8F0', paddingHorizontal: scale(10), paddingVertical: scale(4),
     borderRadius: scale(8),
+  },
+  diaryQuote: {
+    fontSize: scale(11), color: '#8D6E63', lineHeight: scale(17), marginBottom: scale(8),
+    borderLeftWidth: 2, borderLeftColor: '#F4A460', paddingLeft: scale(8),
+  },
+  diaryEmpty: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: scale(36), paddingBottom: scale(80), gap: scale(8),
+  },
+  diaryEmptyIcon: { fontSize: scale(34) },
+  diaryEmptyTitle: { fontSize: scale(14), fontWeight: '700', color: '#5D4037' },
+  diaryEmptyHint: {
+    fontSize: scale(11), color: '#A1887F', lineHeight: scale(18), textAlign: 'center',
   },
 
   // ====== Floating Action Button ======
