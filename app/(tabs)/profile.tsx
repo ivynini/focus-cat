@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions, Pressable, FlatList, Image, Modal, TextInput } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
 import { UserAvatar } from '../../src/components/UserAvatar'
 import { scale } from '../../src/lib/scale'
+import { api } from '../../src/lib/api'
 import { useAuth } from '../../src/stores/authStore'
 import { usePostStore, SquarePost, HelpPost } from '../../src/stores/postStore'
 import { useCatStore } from '../../src/stores/catStore'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 
 const { width: SW } = Dimensions.get('window')
 
@@ -35,11 +36,57 @@ export default function ProfileScreen() {
   const [userTab, setUserTab] = useState(0)
   const router = useRouter()
 
+  // 真实统计：总专注分钟数来自 users.total_focus_minutes（服务端每次建专注记录时累加），
+  // 打卡天数来自 focus_sessions 的去重自然日，完成数来自 todos.completed。
+  const [totalMinutes, setTotalMinutes] = useState(0)
+  const [focusDays, setFocusDays] = useState(0)
+  const [doneTodos, setDoneTodos] = useState(0)
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isLoggedIn) {
+        setTotalMinutes(0)
+        setFocusDays(0)
+        setDoneTodos(0)
+        return
+      }
+      api.getMe()
+        .then((me: any) => setTotalMinutes(me?.total_focus_minutes || 0))
+        .catch(() => {})
+      api.getFocusSessions()
+        .then((rows: any[]) => {
+          if (!Array.isArray(rows)) return
+          const days = new Set<string>()
+          rows.forEach((row) => {
+            if (!row?.created_at) return
+            const d = new Date(row.created_at)
+            if (Number.isNaN(d.getTime())) return
+            days.add(`${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`)
+          })
+          setFocusDays(days.size)
+        })
+        .catch(() => {})
+      api.getTodos()
+        .then((rows: any[]) => {
+          if (!Array.isArray(rows)) return
+          setDoneTodos(rows.filter((t) => !!t?.completed).length)
+        })
+        .catch(() => {})
+    }, [isLoggedIn])
+  )
+
+  const formatMinutes = (minutes: number) => {
+    if (minutes < 60) return `${minutes}M`
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return m > 0 ? `${h}H ${m}M` : `${h}H`
+  }
+
   const stats = [
-    { label: '总专注', value: '12H 30M', route: '/stats' as string | undefined },
+    { label: '总专注', value: formatMinutes(totalMinutes), route: '/stats' as string | undefined },
     { label: '金币', value: coins.toLocaleString() },
-    { label: '打卡', value: '7 DAYS' },
-    { label: '完成', value: '28' },
+    { label: '打卡', value: `${focusDays} DAYS` },
+    { label: '完成', value: String(doneTodos) },
   ]
 
   const displayName = profile.nickname || username || '猫友'
