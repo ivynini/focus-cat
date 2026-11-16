@@ -1,11 +1,35 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 
-// Android 模拟器通过 10.0.2.2 访问宿主机；真机可用环境变量指定电脑的局域网地址。
-const DEFAULT_API_BASE = Platform.OS === 'android'
-  ? 'http://10.0.2.2:8000/api'
-  : 'http://localhost:8000/api'
-const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE).replace(/\/$/, '')
+/**
+ * 后端地址。
+ *
+ * 原来写死 10.0.2.2（Android 模拟器指向宿主机的别名），手机扫码时它指向手机自己，
+ * 所有接口都失败 —— 表现就是「数据全空、金币 0」，看着像没更新。
+ *
+ * 现在从 Metro 的地址反推：Metro 在 10.0.2.2:8081 → 后端在 10.0.2.2:8000；
+ * 手机连的是 192.168.x.x:8081（局域网）→ 后端就是同一个 IP 的 8000；
+ * 走 USB `adb reverse` 时是 127.0.0.1:8081 → 后端 127.0.0.1:8000。
+ * 需要指定别的地址时，用 EXPO_PUBLIC_API_BASE_URL 覆盖。
+ */
+function resolveApiBase(): string {
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL
+  if (configured) return configured.replace(/\/$/, '')
+
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    // 开发环境下 Metro 的地址也可能挂在这里
+    (Constants as any).expoGoConfig?.debuggerHost ||
+    (Constants as any).linkingUri?.replace(/^https?:\/\//, '')
+
+  const host = typeof hostUri === 'string' ? hostUri.split('/')[0].split(':')[0] : ''
+  if (host) return `http://${host}:8000/api`
+
+  return Platform.OS === 'android' ? 'http://10.0.2.2:8000/api' : 'http://localhost:8000/api'
+}
+
+const API_BASE = resolveApiBase()
 
 async function request(path: string, options: RequestInit = {}, timeoutMs = 8000) {
   const token = await AsyncStorage.getItem('token')

@@ -1,9 +1,11 @@
-﻿import { create } from 'zustand'
+import { create } from 'zustand'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { api } from '../lib/api'
 
 interface CatStore {
   coins: number
+  /** 服务端的真实金币是否已经拉下来过；没拉下来之前绝不允许把本地值写回去 */
+  coinsLoaded: boolean
   hunger: number
   happiness: number
   boughtFood: Record<string, number>
@@ -34,6 +36,7 @@ interface CatStore {
 
 export const useCatStore = create<CatStore>((set, get) => ({
   coins: 0,
+  coinsLoaded: false,
   hunger: 80,
   happiness: 100,
   boughtFood: {},
@@ -50,7 +53,8 @@ export const useCatStore = create<CatStore>((set, get) => ({
     try {
       const data = await api.getCatState()
       set({
-        coins: data.coins || 0,
+        coins: data.coins ?? 0,
+        coinsLoaded: typeof data.coins === 'number',
         hunger: data.hunger ?? 80,
         happiness: data.happiness ?? 100,
         boughtFood: data.bought_food || {},
@@ -157,17 +161,25 @@ export const useCatStore = create<CatStore>((set, get) => ({
     })
   },
 
-  syncToServer: () => {
+  syncToServer: async () => {
+    // 没拿到过服务端的真实金币就先拉一次。之前这里直接把本地 coins 写回去，
+    // 一次启动时接口失败（本地还是 0）就把演示账号的 99999 覆盖成了 0。
+    if (!get().coinsLoaded) {
+      await get().fetchCatState()
+    }
     const s = get()
-    api.saveCatState({
-      hunger: s.hunger,
-      happiness: s.happiness,
-      equipped_accessory: s.equippedAcc,
-      bought_food: s.boughtFood,
-      unlocked_accessories: s.unlockedAccessories,
-      coins: s.coins,
-      today_minutes: s.todayMinutes,
-      today_date: s.todayDate,
-    }).catch(() => {})
+    try {
+      await api.saveCatState({
+        hunger: s.hunger,
+        happiness: s.happiness,
+        equipped_accessory: s.equippedAcc,
+        bought_food: s.boughtFood,
+        unlocked_accessories: s.unlockedAccessories,
+        // 还是没拉下来就干脆不写 coins，让服务端保留原值
+        ...(s.coinsLoaded ? { coins: s.coins } : {}),
+        today_minutes: s.todayMinutes,
+        today_date: s.todayDate,
+      })
+    } catch {}
   },
 }))
