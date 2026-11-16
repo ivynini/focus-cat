@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   StyleSheet,
   Text,
@@ -19,11 +19,16 @@ import { scale, vscale, sh } from '../../src/lib/scale'
 import { todayArticle, todayQuote, todayTrack } from '../../src/data/daily'
 import { useAuth } from '../../src/stores/authStore'
 import { useCatStore } from '../../src/stores/catStore'
+import { useWeatherStore, WeatherStatus } from '../../src/stores/weatherStore'
 import { api } from '../../src/lib/api'
 
-// 每日金句 / 美文 / 推荐曲目都来自内容池，按自然日轮换（见 src/data/daily.ts）
-
-const weather = { temp: 24, location: '浙江·杭州', type: 'sun' }
+// 天气栏的副标题：只在拿到数据时显示城市，其余状态都说人话，不编造
+function weatherLocationText(status: WeatherStatus, location: string, message: string): string {
+  if (status === 'ready' && location) return location
+  if (status === 'loading') return '定位中…'
+  if (message) return message
+  return '点击获取天气'
+}
 
 const WEATHER_ICONS: Record<string, any> = {
   sun: require('../../assets/weather/sun.png'),
@@ -62,6 +67,14 @@ export default function HomeScreen() {
   const [tempGoal, setTempGoal] = useState('')
 
   const quote = todayQuote()
+  const { status: weatherStatus, snapshot, message: weatherMessage, refresh: refreshWeather } =
+    useWeatherStore()
+
+  // 首次进首页要一次定位；用户拒绝或失败就在天气栏上显示对应文案，不重试骚扰
+  useEffect(() => {
+    if (weatherStatus === 'idle') refreshWeather()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const track = todayTrack()
   const dailyArticle = todayArticle()
 
@@ -148,13 +161,18 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* ====== Weather — two rows ====== */}
-        <View style={styles.weatherBar}>
+        <TouchableOpacity style={styles.weatherBar} activeOpacity={0.7} onPress={refreshWeather}>
           <View style={styles.weatherRow}>
-            <Image source={WEATHER_ICONS[weather.type] || WEATHER_ICONS.sun} style={styles.weatherIcon} />
-            <Text style={styles.weatherTemp}>{weather.temp}°</Text>
+            <Image
+              source={WEATHER_ICONS[snapshot?.type || 'sun'] || WEATHER_ICONS.sun}
+              style={styles.weatherIcon}
+            />
+            <Text style={styles.weatherTemp}>{snapshot ? `${snapshot.temp}°` : '--°'}</Text>
           </View>
-          <Text style={styles.weatherLoc}>{weather.location}</Text>
-        </View>
+          <Text style={styles.weatherLoc}>
+            {weatherLocationText(weatherStatus, snapshot?.location || '', weatherMessage)}
+          </Text>
+        </TouchableOpacity>
 
         {/* ====== 今日专注环 ====== */}
         <TouchableOpacity

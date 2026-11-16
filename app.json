@@ -25,7 +25,9 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.anonymous.focuscat"
     },
@@ -40,7 +42,14 @@
       "expo-router",
       "@react-native-community/datetimepicker",
       "expo-audio",
-      "expo-font"
+      "expo-font",
+      "expo-image-picker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "用来在首页显示你所在城市的天气，只在打开 App 时定位一次。"
+        }
+      ]
     ]
   }
 }

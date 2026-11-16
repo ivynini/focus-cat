@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router'
 import { UserAvatar } from '../../src/components/UserAvatar'
 import { useAuth } from '../../src/stores/authStore'
 import { usePostStore, SquarePost, HelpPost } from '../../src/stores/postStore'
+import { useWeatherStore } from '../../src/stores/weatherStore'
 import { api } from '../../src/lib/api'
 import * as ImagePicker from 'expo-image-picker'
 import { scale, sw } from '../../src/lib/scale'
@@ -50,19 +51,20 @@ function formatFocus(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
 
-function toDiaryPost(entry: any, minutes: Record<string, number>): DiaryPost {
+function toDiaryPost(entry: any, minutes: Record<string, number>, todayWeather?: string): DiaryPost {
   const d = new Date(entry?.created_at ?? Date.now())
   const date = Number.isNaN(d.getTime())
     ? '--'
     : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const isToday = localDateKey(entry?.created_at ?? '') === localDateKey(new Date().toISOString())
   return {
     id: String(entry?.id ?? ''),
     date,
     title: entry?.title || '今日日记',
     content: entry?.content || '',
     focus: formatFocus(minutes[localDateKey(entry?.created_at)] ?? 0),
-    // 天气要等定位/天气源接上（#6），先不编造
-    weather: '--',
+    // 只有今天的日记知道天气；以前的日记没法回溯，就留空（不写 '--' 糊弄）
+    weather: isToday ? todayWeather || '' : '',
     quote: entry?.quote || '',
     // 内容池里的作者自带「— 」前缀（首页金句卡直接用），这里要剥掉，避免渲染成「— — 孔子」
     quoteAuthor: (entry?.quote_author || '').replace(/^—\s*/, ''),
@@ -77,6 +79,12 @@ export default function WorldScreen() {
   const [tab, setTab] = useState(0)
   const [diaryPosts, setDiaryPosts] = useState<DiaryPost[]>([])
   const dayMinutesRef = useRef<Record<string, number>>({})
+  // 今天日记卡片上那半句天气：跟着首页的天气状态走，拿不到就空着
+  const weatherLabel = useWeatherStore((s) => s.snapshot?.label)
+  const weatherRef = useRef<string>('')
+  useEffect(() => {
+    weatherRef.current = weatherLabel || ''
+  }, [weatherLabel])
   const [showCreate, setShowCreate] = useState(false)
   const [drawerType, setDrawerType] = useState<'likes' | 'favorites' | null>(null)
   const [searchText, setSearchText] = useState('')
@@ -109,7 +117,9 @@ export default function WorldScreen() {
         const minutes = minutesByDay(Array.isArray(sessions) ? sessions : [])
         dayMinutesRef.current = minutes
         setDiaryPosts(
-          (Array.isArray(entries) ? entries : []).map((entry: any) => toDiaryPost(entry, minutes)),
+          (Array.isArray(entries) ? entries : []).map((entry: any) =>
+            toDiaryPost(entry, minutes, weatherRef.current),
+          ),
         )
       })
       .catch(() => {})
@@ -167,7 +177,7 @@ export default function WorldScreen() {
           quote: quote.text,
           quote_author: quote.author.replace(/^—\s*/, ''),
         })
-        setDiaryPosts((prev) => [toDiaryPost(entry, dayMinutesRef.current), ...prev])
+        setDiaryPosts((prev) => [toDiaryPost(entry, dayMinutesRef.current, weatherRef.current), ...prev])
       }
     } catch (e: any) {
       Alert.alert('发布失败', e.message || '请检查网络连接后重试')
@@ -479,7 +489,9 @@ function DiaryTab({
             <UserAvatar size={scale(36)} />
             <View style={{ flex: 1 }}>
               <Text style={styles.diaryUsername}>我的日记</Text>
-              <Text style={styles.diaryDate}>{item.date} · {item.weather}</Text>
+              <Text style={styles.diaryDate}>
+                {item.weather ? `${item.date} · ${item.weather}` : item.date}
+              </Text>
             </View>
           </View>
 
