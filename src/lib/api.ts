@@ -51,7 +51,50 @@ async function request(path: string, options: RequestInit = {}, timeoutMs = 8000
   }
 }
 
+/** 后端存的是 /uploads/xxx 这种相对路径，加载图片时补上服务地址。 */
+export function absoluteUrl(path?: string | null): string | undefined {
+  if (!path) return undefined
+  if (/^https?:\/\//i.test(path)) return path
+  const origin = API_BASE.replace(/\/api$/, '')
+  return `${origin}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
 export const api = {
+  // 图片上传：不能用上面那个 request —— 它写死了 Content-Type: application/json，
+  // multipart 得让 fetch 自己带 boundary
+  uploadImage: async (uri: string, mimeType = 'image/jpeg', timeoutMs = 30000) => {
+    const token = await AsyncStorage.getItem('token')
+    const form = new FormData()
+    const name = uri.split('/').pop() || `upload${mimeType === 'image/png' ? '.png' : '.jpg'}`
+    // RN 的 FormData 认这个结构，类型声明里没有，所以断言一下
+    form.append('file', { uri, name, type: mimeType } as unknown as Blob)
+
+    const controller = new AbortController()
+    const id = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(`${API_BASE}/uploads/image`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: form,
+        signal: controller.signal,
+      })
+      const text = await res.text()
+      let data: any = null
+      try {
+        data = text ? JSON.parse(text) : null
+      } catch {
+        throw new Error('服务器返回了无效的响应')
+      }
+      if (!res.ok) throw new Error(data?.error || `上传失败（HTTP ${res.status}）`)
+      return data
+    } catch (error: any) {
+      if (error?.name === 'AbortError') throw new Error('上传超时，请检查网络')
+      throw error?.message ? error : new Error('无法连接服务器')
+    } finally {
+      clearTimeout(id)
+    }
+  },
+
   // 认证
   register: (username: string, password: string) =>
     request('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),

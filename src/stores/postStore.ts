@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '../lib/api'
+import { absoluteUrl, api } from '../lib/api'
 
 const PHOTO1 = require('../../assets/photo1.jpg')
 const CAT_F0 = require('../../catactivity/未命名/F0.png')
@@ -46,7 +46,9 @@ function dbToPost(row: any): SquarePost | HelpPost {
     avatar: row.avatar ? { uri: row.avatar } : CAT_F0,
   }
   const time = fmtTime(row.created_at)
-  const image = row.image_url ? { uri: row.image_url } : PHOTO1
+  // 后端存的是 /uploads/xxx 相对路径，加载时补上服务地址
+  const imageUri = absoluteUrl(row.image_url)
+  const image = imageUri ? { uri: imageUri } : PHOTO1
 
   if (row.type === 'square') {
     return {
@@ -66,7 +68,7 @@ function dbToPost(row: any): SquarePost | HelpPost {
     time,
     bounty: row.bounty || 0,
     content: row.content || '',
-    image: row.image_url ? { uri: row.image_url } : undefined,
+    image: imageUri ? { uri: imageUri } : undefined,
     replies: row.replies || 0,
     likes: row.likes || 0,
     liked: !!row.liked,

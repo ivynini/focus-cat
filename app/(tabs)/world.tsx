@@ -6,6 +6,7 @@ import { UserAvatar } from '../../src/components/UserAvatar'
 import { useAuth } from '../../src/stores/authStore'
 import { usePostStore, SquarePost, HelpPost } from '../../src/stores/postStore'
 import { api } from '../../src/lib/api'
+import * as ImagePicker from 'expo-image-picker'
 import { scale, sw } from '../../src/lib/scale'
 import { todayQuote } from '../../src/data/daily'
 
@@ -136,15 +137,19 @@ export default function WorldScreen() {
     router.push({ pathname: '/post-detail', params: { post: JSON.stringify(post), type } })
   }
 
-  const handlePublish = async (text: string, bounty: number = 0) => {
+  const handlePublish = async (text: string, bounty: number = 0, imageUrl?: string) => {
     try {
       if (tab === 0) {
         const lines = text.trim().split('\n').filter(Boolean)
         const title = lines[0] || '无标题'
         const content = lines.slice(1).join('\n') || text
-        await addSquarePost({ title: title.length > 20 ? title.slice(0, 20) + '...' : title, content })
+        await addSquarePost({
+          title: title.length > 20 ? title.slice(0, 20) + '...' : title,
+          content,
+          image_url: imageUrl,
+        })
       } else if (tab === 1) {
-        await addHelpPost({ content: text.trim(), bounty })
+        await addHelpPost({ content: text.trim(), bounty, image_url: imageUrl })
       } else if (tab === 2) {
         // 日记：落库，并把发布当天的金句一起存下来
         if (!isLoggedIn) {
@@ -267,9 +272,9 @@ export default function WorldScreen() {
         visible={showCreate}
         tab={tab}
         onClose={() => setShowCreate(false)}
-        onPublish={async (text, bounty) => {
+        onPublish={async (text, bounty, imageUrl) => {
           try {
-            await handlePublish(text, bounty)
+            await handlePublish(text, bounty, imageUrl)
             setShowCreate(false)
           } catch { /* Error already shown by Alert in handlePublish */ }
         }}
@@ -504,10 +509,13 @@ function DiaryTab({
 // ==================== Create Post Modal ====================
 
 function CreateModal({ visible, tab, onClose, onPublish }: {
-  visible: boolean; tab: number; onClose: () => void; onPublish: (text: string, bounty: number) => void
+  visible: boolean; tab: number; onClose: () => void
+  onPublish: (text: string, bounty: number, imageUrl?: string) => void
 }) {
   const [text, setText] = useState('')
   const [bounty, setBounty] = useState('0')
+  const [imageUri, setImageUri] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const placeholder =
     tab === 0 ? '分享你的猫咪日常...' :
@@ -519,11 +527,42 @@ function CreateModal({ visible, tab, onClose, onPublish }: {
     tab === 1 ? '发布求助' :
     '写日记'
 
-  const handlePublish = () => {
-    if (!text.trim()) return
-    onPublish(text.trim(), parseInt(bounty, 10) || 0)
-    setText('')
-    setBounty('0')
+  const handlePublish = async () => {
+    if (!text.trim() || uploading) return
+    setUploading(true)
+    try {
+      // 先把图传上去拿到 /uploads/xxx，再带着 image_url 发帖
+      let imageUrl: string | undefined
+      if (imageUri && tab !== 2) {
+        const mime = imageUri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+        const uploaded: any = await api.uploadImage(imageUri, mime)
+        imageUrl = uploaded?.url
+      }
+      onPublish(text.trim(), parseInt(bounty, 10) || 0, imageUrl)
+      setText('')
+      setBounty('0')
+      setImageUri(null)
+    } catch (e: any) {
+      Alert.alert('上传失败', e?.message || '请检查网络连接后重试')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!permission.granted) {
+      Alert.alert('需要相册权限', '允许之后才能选照片')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+      allowsEditing: true,
+    })
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setImageUri(result.assets[0].uri)
+    }
   }
 
   return (
@@ -565,9 +604,17 @@ function CreateModal({ visible, tab, onClose, onPublish }: {
                 </View>
               </View>
             )}
-            <TouchableOpacity style={styles.addPhotoBtn}>
-              <Text style={styles.addPhotoText}>+ 添加图片</Text>
-            </TouchableOpacity>
+            {/* 日记暂时不支持配图（表里没有这一列），别的帖子可以 */}
+            {tab !== 2 && (
+              <TouchableOpacity style={styles.addPhotoBtn} onPress={pickImage}>
+                <Text style={styles.addPhotoText}>
+                  {imageUri ? '✓ 已选一张，点这里换' : '+ 添加图片'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {!!imageUri && (
+              <Image source={{ uri: imageUri }} style={styles.pickedImage} resizeMode="cover" />
+            )}
           </View>
         </View>
       </View>
@@ -740,6 +787,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#F0E8E0', marginTop: scale(12),
   },
   addPhotoText: { fontSize: scale(13), color: '#F4A460', fontWeight: '600' },
+  pickedImage: {
+    width: '100%', height: scale(140), borderRadius: scale(10),
+    marginTop: scale(8), backgroundColor: '#F0E8E0',
+  },
   bountyRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: scale(12), marginTop: scale(12),
