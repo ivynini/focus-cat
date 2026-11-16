@@ -3,10 +3,12 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { MaterialIcons } from '@expo/vector-icons'
 import { scale } from '../src/lib/scale'
-import { article } from '../src/data/articles'
+import { todayArticle } from '../src/data/daily'
 
 export default function ArticleScreen() {
   const router = useRouter()
+  // 每天一篇，和首页那张 DAILY READ 卡是同一份内容
+  const article = todayArticle()
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

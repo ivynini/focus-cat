@@ -16,21 +16,12 @@ import { PixelIcon } from '../../src/components/PixelIcon'
 import { StudyInsightCard } from '../../src/components/StudyInsightCard'
 import { useAudio } from '../../src/hooks/useAudio'
 import { scale, vscale, sh } from '../../src/lib/scale'
-import { article } from '../../src/data/articles'
+import { todayArticle, todayQuote, todayTrack } from '../../src/data/daily'
 import { useAuth } from '../../src/stores/authStore'
 import { useCatStore } from '../../src/stores/catStore'
 import { api } from '../../src/lib/api'
 
-const dailyQuote = {
-  text: '真正的自由不是随心所欲，而是自我掌控。',
-  author: '— 亚里士多德',
-}
-
-const dailySong = {
-  name: 'Merry Christmas Mr. Lawrence',
-  artist: '坂本龙一',
-}
-
+// 每日金句 / 美文 / 推荐曲目都来自内容池，按自然日轮换（见 src/data/daily.ts）
 
 const weather = { temp: 24, location: '浙江·杭州', type: 'sun' }
 
@@ -69,6 +60,10 @@ export default function HomeScreen() {
   const [dailyGoal, setDailyGoal] = useState(120)
   const [showFocusModal, setShowFocusModal] = useState(false)
   const [tempGoal, setTempGoal] = useState('')
+
+  const quote = todayQuote()
+  const track = todayTrack()
+  const dailyArticle = todayArticle()
 
   const focusPercent = Math.min(todayMinutes / dailyGoal, 1)
   // 红→橙→绿 插值
@@ -261,8 +256,8 @@ export default function HomeScreen() {
         <View style={styles.midRow}>
           <View style={styles.quoteBox}>
             <Text style={styles.quoteIcon}>"</Text>
-            <Text style={styles.quoteText} numberOfLines={5}>{dailyQuote.text}</Text>
-            <Text style={styles.quoteAuthor}>{dailyQuote.author}</Text>
+            <Text style={styles.quoteText} numberOfLines={5}>{quote.text}</Text>
+            <Text style={styles.quoteAuthor}>{quote.author}</Text>
           </View>
 
           <View style={styles.musicBox}>
@@ -273,8 +268,9 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
             <View style={styles.musicBottom}>
-              <Text style={styles.songName} numberOfLines={1}>{dailySong.name}</Text>
-              <Text style={styles.songArtist} numberOfLines={1}>{dailySong.artist}</Text>
+              <Text style={styles.songName} numberOfLines={1}>{track.name}</Text>
+              <Text style={styles.songArtist} numberOfLines={1}>{track.artist}</Text>
+              <Text style={styles.songHint} numberOfLines={1}>▶ 播放专注背景音</Text>
             </View>
           </View>
         </View>
@@ -292,8 +288,8 @@ export default function HomeScreen() {
           />
           <View style={styles.articleOverlay}>
             <Text style={styles.articleLabel}>DAILY READ</Text>
-            <Text style={styles.articleText} numberOfLines={3}>{article.firstSentence}</Text>
-            <Text style={styles.articleAuthor}>— {article.author}</Text>
+            <Text style={styles.articleText} numberOfLines={3}>{dailyArticle.firstSentence}</Text>
+            <Text style={styles.articleAuthor}>— {dailyArticle.author}</Text>
           </View>
         </TouchableOpacity>
 
@@ -468,6 +464,7 @@ const styles = StyleSheet.create({
   musicBottom: { gap: scale(2) },
   songName: { fontSize: scale(12), fontFamily: 'PixelSCBold', color: '#FFFFFF' },
   songArtist: { fontSize: scale(10), fontFamily: 'PixelSC', color: '#BBA89A', marginTop: scale(2) },
+  songHint: { fontSize: scale(9), fontFamily: 'PixelSC', color: '#8D6E63', marginTop: scale(3) },
   playButton: {
     width: scale(34), height: scale(34), backgroundColor: '#D4A574',
     alignItems: 'center', justifyContent: 'center',
