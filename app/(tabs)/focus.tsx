@@ -79,6 +79,9 @@ export default function FocusScreen() {
   const [petCount, setPetCount] = useState(0)
   const [showPauseConfirm, setShowPauseConfirm] = useState(false)
   const [showExitConfirm, setShowExitConfirm] = useState(false)
+  // #8 休息倒计时：结束时给 5 分钟，计时只走显示，不发金币、不写专注记录
+  const [breakLeft, setBreakLeft] = useState(BREAK_TIME)
+  const breakStartedAtRef = useRef<number | null>(null)
 
   // 猫咪状态
   const catCoins = useCatStore((s) => s.coins)
@@ -255,6 +258,53 @@ export default function FocusScreen() {
       }
     }, [wasFocusedAndUndone])
   )
+
+  // ============ 休息倒计时：结束后 5 分钟回首页，不发金币 ============
+  // 这段只走显示：不进 completeFocus，所以不加金币、不写 focus_sessions。
+  const goHomeAfterBreak = useCallback(() => {
+    breakStartedAtRef.current = null
+    setIsBreak(false)
+    setIsRunning(false)
+    setIsFocusing(false)
+    setBreakLeft(BREAK_TIME)
+    setTimeLeft(focusDuration * 60)
+    setTotalSeconds(focusDuration * 60)
+    setEarnedCoins(0)
+    setSummaryCard(null)
+    setShowCompletion(false)
+    awardedCoinsRef.current = 0
+    completingRef.current = false
+    activeSessionId.current = null
+    runStartedAtRef.current = null
+    router.navigate('/')
+  }, [focusDuration, router])
+
+  const beginBreak = useCallback(() => {
+    setShowCompletion(false)
+    setSummaryCard(null)
+    breakStartedAtRef.current = Date.now()
+    setBreakLeft(BREAK_TIME)
+    setIsBreak(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isBreak) return
+    if (breakStartedAtRef.current === null) breakStartedAtRef.current = Date.now()
+
+    const tick = () => {
+      const startedAt = breakStartedAtRef.current
+      if (startedAt === null) return
+      const passed = Math.floor((Date.now() - startedAt) / 1000)
+      const next = Math.max(BREAK_TIME - passed, 0)
+      setBreakLeft(next)
+      // 同样用时间戳算：切后台被冻结，回来这一跳就能立刻对齐
+      if (next <= 0) goHomeAfterBreak()
+    }
+
+    const timer = setInterval(tick, 250)
+    tick()
+    return () => clearInterval(timer)
+  }, [isBreak, goHomeAfterBreak])
 
   // ============ 专注完成：保存记录 + 发放金币 ============
   const completeFocus = async (coins: number) => {
@@ -606,7 +656,11 @@ export default function FocusScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <ImageBackground source={BG_IMAGE} style={styles.bgImage}>
         {/* 返回按钮 */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => { if (!isRunning) { goBack() } else { setShowExitConfirm(true) } }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => {
+          if (isBreak) { goHomeAfterBreak() }
+          else if (!isRunning) { goBack() }
+          else { setShowExitConfirm(true) }
+        }}>
           <Text style={styles.backText}>← 返回</Text>
         </TouchableOpacity>
 
@@ -615,7 +669,9 @@ export default function FocusScreen() {
           <Text style={styles.taskLabel}>{focusTaskName}</Text>
           <Text style={styles.title}>{isBreak ? 'REST' : 'FOCUS'}</Text>
 
-          {focusMode === 'notimer' ? (
+          {isBreak ? (
+            <Text style={styles.timerText}>{formatTime(breakLeft)}</Text>
+          ) : focusMode === 'notimer' ? (
             <Text style={styles.timerText}>{formatClock(now)}</Text>
           ) : focusMode === 'countup' ? (
             <Text style={styles.timerText}>{formatTime(elapsed)}</Text>
@@ -631,7 +687,7 @@ export default function FocusScreen() {
           )}
 
           {/* Coin progress */}
-          {focusMode !== 'notimer' && (
+          {focusMode !== 'notimer' && !isBreak && (
             <View style={styles.coinRow}>
               <Text style={styles.coinIcon}>🪙</Text>
               <View style={styles.coinBar}>
@@ -641,8 +697,14 @@ export default function FocusScreen() {
             </View>
           )}
 
+          {isBreak && <Text style={styles.breakHint}>休息一下，这段时间不计金币</Text>}
+
           <View style={styles.controls}>
-            {focusMode !== 'notimer' && (
+            {isBreak ? (
+              <TouchableOpacity style={styles.resetButton} onPress={goHomeAfterBreak}>
+                <Text style={styles.breakSkipText}>跳过休息，回首页</Text>
+              </TouchableOpacity>
+            ) : focusMode !== 'notimer' ? (
               <>
                 <TouchableOpacity
                   style={[styles.button, isRunning ? styles.pauseButton : styles.startButton]}
@@ -674,7 +736,7 @@ export default function FocusScreen() {
                   <Text style={styles.resetText}>RESET</Text>
                 </TouchableOpacity>
               </>
-            )}
+            ) : null}
           </View>
         </View>
 
@@ -762,7 +824,7 @@ export default function FocusScreen() {
           <FocusCompletionCard
             coins={earnedCoins}
             card={summaryCard}
-            onClose={() => { setShowCompletion(false); setSummaryCard(null) }}
+            onClose={beginBreak}
           />
         )}
       </ImageBackground>
@@ -936,6 +998,9 @@ const styles = StyleSheet.create({
   coinBar: { flex: 1, height: scale(8), backgroundColor: '#F0E0D0', borderWidth: 1, borderColor: '#D7CCC8' },
   coinFill: { height: '100%', backgroundColor: '#FFB74D' },
   coinValue: { fontSize: scale(13), fontFamily: 'Pixel', color: '#F4A460', minWidth: scale(32), textAlign: 'right' },
+  // 休息态：中文文案走系统字体，Pixel 字体没有汉字字形
+  breakHint: { fontSize: scale(12), color: '#FFF8F0', opacity: 0.85, marginBottom: scale(16) },
+  breakSkipText: { color: '#8D6E63', fontSize: scale(13), fontWeight: '600' },
 
   controls: { flexDirection: 'row', gap: scale(12) },
   button: {
