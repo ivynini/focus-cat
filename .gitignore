@@ -37,6 +37,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# 一次性报告生成脚本（python-docx 往桌面写 .docx，不属于 App）
+gen_*.py
+
 # generated native folders
 /ios
 /android
