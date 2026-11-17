@@ -239,8 +239,7 @@ export default function PostDetailScreen() {
                 onPress={() => {
                   setLiked(!liked)
                   setLikes((l) => l + (liked ? -1 : 1))
-                  if (type === 'square') toggleSquareLike(post.id)
-                  else if (type === 'help') toggleHelpLike(post.id)
+                  toggleHelpLike(post.id)
                 }}
               >
                 <Text style={[styles.interactionIcon, liked && { color: '#EF5350' }]}>
